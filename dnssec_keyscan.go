@@ -5,6 +5,7 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/ed25519"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"io"
 	"math/big"
@@ -55,15 +56,18 @@ func (k *DNSKEY) ReadPrivateKey(q io.Reader, file string) (crypto.PrivateKey, er
 		priv.PublicKey = *pub
 		return priv, nil
 	case ECDSAP256SHA256, ECDSAP384SHA384:
-		priv, err := readPrivateKeyECDSA(m)
+		var c elliptic.Curve
+		switch k.Algorithm {
+		case ECDSAP256SHA256:
+			c = elliptic.P256()
+		case ECDSAP384SHA384:
+			c = elliptic.P384()
+		}
+		priv, err := readPrivateKeyECDSA(c, m)
 		if err != nil {
 			return nil, err
 		}
-		pub := k.publicKeyECDSA()
-		if pub == nil {
-			return nil, ErrKey
-		}
-		priv.PublicKey = *pub
+		k.setPublicKeyECDSA(priv.PublicKey.X, priv.PublicKey.Y)
 		return priv, nil
 	case ED25519:
 		return readPrivateKeyED25519(m)
@@ -105,7 +109,7 @@ func readPrivateKeyRSA(m map[string]string) (*rsa.PrivateKey, error) {
 	return p, nil
 }
 
-func readPrivateKeyECDSA(m map[string]string) (*ecdsa.PrivateKey, error) {
+func readPrivateKeyECDSA(c elliptic.Curve, m map[string]string) (*ecdsa.PrivateKey, error) {
 	p := new(ecdsa.PrivateKey)
 	p.D = new(big.Int)
 	// TODO: validate that the required flags are present
@@ -121,6 +125,9 @@ func readPrivateKeyECDSA(m map[string]string) (*ecdsa.PrivateKey, error) {
 			/* not used in Go (yet) */
 		}
 	}
+
+	p.PublicKey.Curve = c
+	p.PublicKey.X, p.PublicKey.Y = c.ScalarBaseMult(p.D.Bytes())
 	return p, nil
 }
 
